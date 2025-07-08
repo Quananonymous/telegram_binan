@@ -954,8 +954,8 @@ class IndicatorBot:
         except Exception as e:
             self.position_open = False
             self.log(f"❌ Lỗi khi vào lệnh: {str(e)}")
-
-     def close_position(self, reason=""):
+    
+    def close_position(self, reason=""):
         """Đóng vị thế với số lượng chính xác, kiểm tra kết quả từ Binance"""
         try:
             # Kiểm tra lại trạng thái trước khi đóng
