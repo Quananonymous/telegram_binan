@@ -529,12 +529,12 @@ class IndicatorBot:
         
         # Cấu hình chỉ báo mặc định nếu không có cấu hình
         self.indicator_config = indicator_config or {
-            'rsi': {'period': 14},
-            'macd': {'fast': 12, 'slow': 26, 'signal': 9},
-            'bollinger': {'period': 20, 'std_dev': 2},
-            'stochastic': {'period': 14, 'k_period': 3},
-            'vwma': {'period': 20},
-            'atr': {'period': 14}
+            'rsi': {'period': 7},
+            'macd': {'fast': 6, 'slow': 13, 'signal': 5},
+            'bollinger': {'period': 10, 'std_dev': 1},
+            'stochastic': {'period': 7, 'k_period': 2},
+            'vwma': {'period': 10},
+            'atr': {'period': 7}
         }
         
         self.ws_manager = ws_manager
@@ -583,7 +583,7 @@ class IndicatorBot:
         self.closes.append(close)
         
         # Giới hạn lịch sử để tiết kiệm bộ nhớ
-        max_history = 200
+        max_history = 100
         if len(self.prices) > max_history:
             self.prices = self.prices[-max_history:]
         if len(self.volumes) > max_history:
@@ -741,9 +741,9 @@ class IndicatorBot:
             self.indicator_config['rsi']['period']
         )
         if rsi_val is not None:
-            if rsi_val < 30:
+            if rsi_val < 38.2:
                 signals.append(1)  # Tín hiệu mua
-            elif rsi_val > 70:
+            elif rsi_val > 61.8:
                 signals.append(-1) # Tín hiệu bán
         
         # 2. MACD
@@ -812,7 +812,7 @@ class IndicatorBot:
         
         # Xác định tín hiệu tổng hợp
         if not signals:
-            return None
+            return -1
             
         # Chiến lược kết hợp: Cần ít nhất 3 tín hiệu đồng thuận
         buy_signals = sum(1 for s in signals if s > 0)
