@@ -529,12 +529,12 @@ class IndicatorBot:
         
         # Cấu hình chỉ báo mặc định nếu không có cấu hình
         self.indicator_config = indicator_config or {
-            'rsi': {'period': 7},
-            'macd': {'fast': 6, 'slow': 13, 'signal': 5},
-            'bollinger': {'period': 10, 'std_dev': 1},
-            'stochastic': {'period': 7, 'k_period': 2},
-            'vwma': {'period': 10},
-            'atr': {'period': 7}
+            'rsi': {'period': 14},
+            'macd': {'fast': 12, 'slow': 26, 'signal': 9},
+            'bollinger': {'period': 20, 'std_dev': 2},
+            'stochastic': {'period': 14, 'k_period': 3},
+            'vwma': {'period': 20},
+            'atr': {'period': 14}
         }
         
         self.ws_manager = ws_manager
@@ -562,11 +562,41 @@ class IndicatorBot:
         # Đăng ký với WebSocket Manager
         self.ws_manager.add_symbol(self.symbol, self._handle_price_update)
         
+        # TẢI DỮ LIỆU LỊCH SỬ NGAY KHI KHỞI ĐỘNG
+        self._fetch_initial_data()
+        
         # Bắt đầu thread chính
         self.thread = threading.Thread(target=self._run, daemon=True)
         self.thread.start()
         self.log(f"🟢 Bot khởi động cho {self.symbol}")
 
+    def _fetch_initial_data(self, limit=200):
+        """Tải dữ liệu nến lịch sử khi khởi động bot"""
+        try:
+            # Lấy dữ liệu nến 1 phút
+            url = "https://fapi.binance.com/fapi/v1/klines"
+            params = {
+                "symbol": self.symbol,
+                "interval": "1m",
+                "limit": limit
+            }
+            data = binance_api_request(url, params=params)
+            if not data:
+                return
+
+            # Xử lý dữ liệu nến
+            for candle in data:
+                self.closes.append(float(candle[4]))
+                self.highs.append(float(candle[2]))
+                self.lows.append(float(candle[3]))
+                self.volumes.append(float(candle[5]))
+                self.prices.append(float(candle[4]))  # Giá đóng cửa
+
+            # Log thông báo
+            self.log(f"Đã tải {len(data)} nến lịch sử")
+
+        except Exception as e:
+            self.log(f"Lỗi khi tải dữ liệu lịch sử: {str(e)}")
     def log(self, message):
         """Ghi log và gửi qua Telegram"""
         logger.info(f"[{self.symbol}] {message}")
@@ -583,7 +613,7 @@ class IndicatorBot:
         self.closes.append(close)
         
         # Giới hạn lịch sử để tiết kiệm bộ nhớ
-        max_history = 100
+        max_history = 200
         if len(self.prices) > max_history:
             self.prices = self.prices[-max_history:]
         if len(self.volumes) > max_history:
@@ -741,9 +771,9 @@ class IndicatorBot:
             self.indicator_config['rsi']['period']
         )
         if rsi_val is not None:
-            if rsi_val < 38.2:
+            if rsi_val < 30:
                 signals.append(1)  # Tín hiệu mua
-            elif rsi_val > 61.8:
+            elif rsi_val > 70:
                 signals.append(-1) # Tín hiệu bán
         
         # 2. MACD
@@ -812,7 +842,7 @@ class IndicatorBot:
         
         # Xác định tín hiệu tổng hợp
         if not signals:
-            return -1
+            return None
             
         # Chiến lược kết hợp: Cần ít nhất 3 tín hiệu đồng thuận
         buy_signals = sum(1 for s in signals if s > 0)
