@@ -773,9 +773,9 @@ class IndicatorBot:
             self.indicator_config['rsi']['period']
         )
         if rsi_val is not None:
-            if rsi_val < 20:
+            if rsi_val > 60:
                 signals.append(1)  # Tín hiệu mua
-            elif rsi_val > 80:
+            elif rsi_val < 40:
                 signals.append(-1) # Tín hiệu bán
         
         # 2. MACD
@@ -813,9 +813,9 @@ class IndicatorBot:
             self.indicator_config['stochastic']['k_period']
         )
         if k is not None and d is not None:
-            if k < 20 and d < 20 and k > d:
+            if k > 80 and d > 80 and k < d:
                 signals.append(1)
-            elif k > 80 and d > 80 and k < d:
+            elif k < 20 and d < 20 and k > d:
                 signals.append(-1)
         
         # 5. VWMA
@@ -838,9 +838,9 @@ class IndicatorBot:
             self.indicator_config['atr']['period']
         )
         if atr is not None and self.entry > 0:
-            # SL = 1.5 * ATR (tính theo % giá vào)
+            # SL = 1.125 * ATR (tính theo % giá vào)
             atr_percent = (atr / self.entry) * 100
-            self.dynamic_sl = min(self.sl, max(1, 1.5 * atr_percent))
+            self.dynamic_sl = min(self.sl, max(1, 1.125 * atr_percent))
         
         # Xác định tín hiệu tổng hợp
         if not signals:
