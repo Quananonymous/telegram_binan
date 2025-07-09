@@ -850,9 +850,9 @@ class IndicatorBot:
         buy_signals = sum(1 for s in signals if s > 0)
         sell_signals = sum(1 for s in signals if s < 0)
         
-        if buy_signals >= 4:
+        if buy_signals >= 3:
             return "BUY"
-        elif sell_signals >= 4:
+        elif sell_signals >= 3:
             return "SELL"
             
         return None
