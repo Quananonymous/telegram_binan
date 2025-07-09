@@ -341,9 +341,20 @@ def calc_ema(prices, period):
     """Tính Exponential Moving Average (EMA)"""
     if len(prices) < period:
         return None
-    weights = np.exp(np.linspace(-1, 0, period))
-    weights /= weights.sum()
-    return np.convolve(prices[-period:], weights, mode='valid')[-1]
+        
+    # Tính SMA đầu tiên
+    sma = np.mean(prices[:period])
+    emas = [sma]
+    
+    # Hệ số nhân
+    multiplier = 2 / (period + 1)
+    
+    # Tính EMA cho các điểm tiếp theo
+    for price in prices[period:]:
+        ema = (price - emas[-1]) * multiplier + emas[-1]
+        emas.append(ema)
+    
+    return emas[-1]
 
 def calc_macd(prices, fast=12, slow=26, signal=9):
     """Tính MACD và đường tín hiệu"""
@@ -357,7 +368,22 @@ def calc_macd(prices, fast=12, slow=26, signal=9):
         return None, None
         
     macd_line = ema_fast - ema_slow
-    macd_signal = calc_ema(prices[-slow:], signal) if len(prices) >= slow + signal else None
+    
+    # Tính đường tín hiệu (EMA của MACD)
+    # Lấy giá trị MACD cho signal_period
+    if len(prices) >= slow + signal:
+        # Chỉ lấy các giá trị MACD cần thiết
+        macd_values = []
+        for i in range(len(prices) - slow + 1):
+            fast_ema = calc_ema(prices[i:i+fast], fast)
+            slow_ema = calc_ema(prices[i:i+slow], slow)
+            if fast_ema is not None and slow_ema is not None:
+                macd_values.append(fast_ema - slow_ema)
+        
+        # Tính EMA của MACD cho đường tín hiệu
+        macd_signal = calc_ema(macd_values[-signal:], signal)
+    else:
+        macd_signal = None
     
     return macd_line, macd_signal
 
@@ -518,24 +544,14 @@ class WebSocketManager:
         for symbol in list(self.connections.keys()):
             self.remove_symbol(symbol)
 
-# ========== BOT CHÍNH VỚI ĐA CHỈ BÁO ==========
+# ========== BOT CHÍNH VỚI CHIẾN LƯỢC GIAO DỊCH NÂNG CAO ==========
 class IndicatorBot:
-    def __init__(self, symbol, lev, percent, tp, sl, indicator_config=None, ws_manager=None):
+    def __init__(self, symbol, lev, percent, tp, sl, ws_manager=None):
         self.symbol = symbol.upper()
         self.lev = lev
         self.percent = percent
         self.tp = tp
         self.sl = sl
-        
-        # Cấu hình chỉ báo mặc định nếu không có cấu hình
-        self.indicator_config = indicator_config or {
-            'rsi': {'period': 14},
-            'macd': {'fast': 12, 'slow': 26, 'signal': 9},
-            'bollinger': {'period': 20, 'std_dev': 2},
-            'stochastic': {'period': 14, 'k_period': 3},
-            'vwma': {'period': 20},
-            'atr': {'period': 14}
-        }
         
         self.ws_manager = ws_manager
         self.status = "waiting"
@@ -558,11 +574,12 @@ class IndicatorBot:
         self.max_position_attempts = 3
         self.position_attempt_count = 0
         self.dynamic_sl = sl  # SL động có thể thay đổi
+        self.best_profit = 0  # Theo dõi lợi nhuận tốt nhất để trailing stop
         
         # Đăng ký với WebSocket Manager
         self.ws_manager.add_symbol(self.symbol, self._handle_price_update)
         
-        # TẢI DỮ LIỆU LỊCH SỬ NGAY KHI KHỞI ĐỘNG
+        # Tải dữ liệu lịch sử
         self._fetch_initial_data()
         
         # Bắt đầu thread chính
@@ -597,10 +614,18 @@ class IndicatorBot:
 
         except Exception as e:
             self.log(f"Lỗi khi tải dữ liệu lịch sử: {str(e)}")
+
     def log(self, message):
         """Ghi log và gửi qua Telegram"""
         logger.info(f"[{self.symbol}] {message}")
         send_telegram(f"<b>{self.symbol}</b>: {message}")
+
+    def log_signal_conditions(self, signal_type, conditions):
+        """Ghi log chi tiết điều kiện tín hiệu"""
+        message = f"📊 {self.symbol} TÍN HIỆU {signal_type}:\n"
+        for i, cond in enumerate(conditions, 1):
+            message += f"ĐK {i}: {'✅' if cond else '❌'}\n"
+        self.log(message)
 
     def _handle_price_update(self, close, volume, high, low):
         if self._stop: 
@@ -688,8 +713,6 @@ class IndicatorBot:
             for pos in positions:
                 if pos['symbol'] == self.symbol:
                     position_amt = float(pos.get('positionAmt', 0))
-                     #if abs(position_amt) > 0:
-                      #  self.qty = position_amt
                     
                     if abs(position_amt) > 0:
                         self.position_open = True
@@ -710,251 +733,192 @@ class IndicatorBot:
                 self.log(f"Lỗi kiểm tra vị thế: {str(e)}")
                 self.last_error_log_time = time.time()
 
+    def calc_trend_strength(self, period=20):
+        """Tính sức mạnh xu hướng (độ dốc) trong N phiên"""
+        if len(self.prices) < period:
+            return 0
+        x = np.arange(period)
+        y = np.array(self.prices[-period:])
+        slope = np.polyfit(x, y, 1)[0]
+        return slope * 100  # Trả về % thay đổi/phiên
+
+    def check_bullish_divergence(self):
+        """Phát hiện phân kỳ tăng giữa giá và RSI"""
+        if len(self.prices) < 10 or len(self.closes) < 10:
+            return False
+            
+        # Tìm đáy gần nhất
+        min_idx = np.argmin(self.closes[-10:])
+        min_price = self.closes[-10:][min_idx]
+        
+        # So sánh với đáy trước đó
+        prev_low = min(self.closes[-20:-10]) if len(self.closes) >= 20 else min_price
+        
+        # Tính RSI tương ứng
+        rsi_current = calc_rsi(self.prices[-10:], 14)
+        rsi_prev = calc_rsi(self.prices[-20:-10], 14) if len(self.prices) >= 20 else rsi_current
+        
+        # Phân kỳ tăng: Giá tạo đáy thấp hơn nhưng RSI cao hơn
+        return min_price < prev_low and rsi_current > rsi_prev
+
+    def check_bearish_divergence(self):
+        """Phát hiện phân kỳ giảm giữa giá và RSI"""
+        if len(self.prices) < 10 or len(self.closes) < 10:
+            return False
+            
+        # Tìm đỉnh gần nhất
+        max_idx = np.argmax(self.closes[-10:])
+        max_price = self.closes[-10:][max_idx]
+        
+        # So sánh với đỉnh trước đó
+        prev_high = max(self.closes[-20:-10]) if len(self.closes) >= 20 else max_price
+        
+        # Tính RSI tương ứng
+        rsi_current = calc_rsi(self.prices[-10:], 14)
+        rsi_prev = calc_rsi(self.prices[-20:-10], 14) if len(self.prices) >= 20 else rsi_current
+        
+        # Phân kỳ giảm: Giá tạo đỉnh cao hơn nhưng RSI thấp hơn
+        return max_price > prev_high and rsi_current < rsi_prev
+
+    def get_signal(self):
+        """Tạo tín hiệu với bộ lọc 3 lớp và xác nhận khối lượng"""
+        # Kiểm tra đủ dữ liệu
+        min_data = max(100, 50)  # Chỉ cần 50 nến cho chiến lược mới
+        if len(self.prices) < min_data:
+            return None
+        
+        try:
+            # === LỚP 1: XU HƯỚNG CHÍNH ===
+            # EMA 50 và EMA 200 để xác định xu hướng dài hạn
+            ema50 = calc_ema(self.prices, 50)
+            ema200 = calc_ema(self.prices, 200)
+            
+            if ema50 is None or ema200 is None:
+                return None
+                
+            trend_direction = 1 if ema50 > ema200 else -1  # 1: uptrend, -1: downtrend
+            
+            # Tính sức mạnh xu hướng
+            trend_strength = self.calc_trend_strength(20)
+            
+            # Phân loại xu hướng
+            strong_uptrend = trend_direction == 1 and trend_strength > 0.2
+            strong_downtrend = trend_direction == -1 and trend_strength < -0.2
+            neutral_market = abs(trend_strength) <= 0.2
+            
+            # === LỚP 2: CHỈ BÁO ĐỘNG LƯỢNG ===
+            # RSI với vùng quá mua/quá bán điều chỉnh theo xu hướng
+            rsi = calc_rsi(self.prices, 14)
+            if rsi is None:
+                return None
+                
+            # Điều chỉnh ngưỡng RSI cho tín hiệu mua
+            rsi_buy_threshold = 40 if trend_direction == 1 else 30  # Giảm ngưỡng mua trong uptrend
+
+            # Điều chỉnh ngưỡng RSI cho tín hiệu bán
+            rsi_sell_threshold = 65 if trend_direction == -1 else 70  # Tăng ngưỡng bán trong downtrend
+            
+            # MACD với tín hiệu phân kỳ
+            macd_line, macd_signal = calc_macd(self.prices, 12, 26, 9)
+            
+            # === LỚP 3: MÔ HÌNH GIÁ ===
+            # Xác nhận breakout với Bollinger Bands
+            upper_band, middle_band, lower_band = calc_bollinger_bands(self.prices, 20, 2)
+            current_price = self.prices[-1]
+            
+            # === XÁC NHẬN KHỐI LƯỢNG ===
+            # So sánh khối lượng hiện tại với trung bình
+            if len(self.volumes) < 20:
+                return None
+                
+            current_volume = self.volumes[-1]
+            avg_volume = np.mean(self.volumes[-20:])
+            volume_ok = current_volume > avg_volume * 1.3  # Khối lượng > 130% trung bình
+            
+            # === TÍN HIỆU MUA (BUY) ===
+            buy_conditions = [
+                # Điều kiện mua trong uptrend mạnh
+                strong_uptrend and rsi < rsi_buy_threshold and current_price < middle_band,
+                
+                # Điều kiện mua trong downtrend (phản đảo)
+                strong_downtrend and rsi < 30 and macd_line > macd_signal,
+                
+                # Điều kiện mua trong thị trường trung lập
+                neutral_market and rsi < 35 and current_price < lower_band
+            ]
+            
+            # === TÍN HIỆU BÁN (SELL) ===
+            sell_conditions = [
+                # Điều kiện bán trong downtrend mạnh
+                strong_downtrend and rsi > rsi_sell_threshold and current_price > middle_band,
+                
+                # Điều kiện bán trong uptrend (phản đảo)
+                strong_uptrend and rsi > 70 and macd_line < macd_signal,
+                
+                # Điều kiện bán trong thị trường trung lập
+                neutral_market and rsi > 65 and current_price > upper_band
+            ]
+            
+            # === QUYẾT ĐỊNH TÍN HIỆU ===
+            if any(buy_conditions) and volume_ok:
+                # Kiểm tra thêm phân kỳ tăng
+                if self.check_bullish_divergence():
+                    self.log_signal_conditions("MUA", buy_conditions)
+                    return "BUY"
+                    
+            if any(sell_conditions) and volume_ok:
+                # Kiểm tra thêm phân kỳ giảm
+                if self.check_bearish_divergence():
+                    self.log_signal_conditions("BÁN", sell_conditions)
+                    return "SELL"
+                    
+            return None
+            
+        except Exception as e:
+            self.log(f"Lỗi tạo tín hiệu: {str(e)}")
+            return None
+
     def check_tp_sl(self):
-        """Tự động kiểm tra và đóng lệnh khi đạt TP/SL với kiểm soát rủi ro"""
-        if not self.position_open or not self.entry or not self.qty:
+        """Quản lý TP/SL thích ứng với biến động thị trường"""
+        if not self.position_open:
             return
             
         try:
-            if len(self.prices) > 0:
-                current_price = self.prices[-1]
-            else:
-                current_price = get_current_price(self.symbol)
-                
+            current_price = self.prices[-1] if self.prices else get_current_price(self.symbol)
             if current_price <= 0:
                 return
                 
-            # Tính ROI
-            if self.side == "BUY":
-                profit = (current_price - self.entry) * abs(self.qty)
+            # Tính % thay đổi giá
+            price_change_pct = ((current_price - self.entry) / self.entry) * 100
+            if self.side == "SELL":
+                price_change_pct = -price_change_pct
+                
+            # Tính ATR để xác định biến động
+            atr = calc_atr(self.highs, self.lows, self.closes, 14)
+            if atr:
+                # Điều chỉnh SL động dựa trên ATR
+                atr_pct = (atr / self.entry) * 100
+                dynamic_sl = max(1.0, min(self.sl, 2.0 * atr_pct))
             else:
-                profit = (self.entry - current_price) * abs(self.qty)
+                dynamic_sl = self.sl
                 
-            # Tính % ROI dựa trên vốn ban đầu
-            invested = self.entry * abs(self.qty) / self.lev
-            if invested <= 0:
-                return
-                
-            roi = (profit / invested) * 100
+            # Điều chỉnh SL theo hướng có lợi (Trailing Stop)
+            if price_change_pct > 0:
+                # Dịch chuyển SL lên khi có lợi nhuận
+                new_sl_level = price_change_pct * 0.7  # Giữ 70% lợi nhuận
+                if new_sl_level > self.best_profit:
+                    self.best_profit = new_sl_level
+                    self.dynamic_sl = max(self.dynamic_sl, -new_sl_level)
             
             # Kiểm tra TP/SL
-            if roi >= self.tp:
-                self.close_position(f"✅ Đạt TP {self.tp}% (ROI: {roi:.2f}%)")
-            elif roi <= -self.dynamic_sl:
-                self.close_position(f"❌ Đạt SL {self.dynamic_sl:.2f}% (ROI: {roi:.2f}%)")
+            if price_change_pct >= self.tp:
+                self.close_position(f"✅ Đạt TP {self.tp}%")
+            elif price_change_pct <= -dynamic_sl:
+                self.close_position(f"❌ Đạt SL {dynamic_sl:.2f}%")
                 
         except Exception as e:
-            if time.time() - self.last_error_log_time > 10:
-                self.log(f"Lỗi kiểm tra TP/SL: {str(e)}")
-                self.last_error_log_time = time.time()
+            self.log(f"Lỗi kiểm tra TP/SL: {str(e)}")
 
-    def get_signal(self):
-        """Tạo tín hiệu dựa trên kết hợp các chỉ báo"""
-        # Kiểm tra đủ dữ liệu
-        min_data = max(
-            100,
-            self.indicator_config['rsi']['period'] + 30,
-            self.indicator_config['macd']['slow'] + self.indicator_config['macd']['signal'],
-            self.indicator_config['bollinger']['period'],
-            self.indicator_config['stochastic']['period'] + self.indicator_config['stochastic']['k_period'],
-            self.indicator_config['vwma']['period'],
-            self.indicator_config['atr']['period']
-        )
-        
-        if len(self.prices) < min_data or len(self.volumes) < min_data or \
-           len(self.highs) < min_data or len(self.lows) < min_data:
-            return None
-            
-        signals = []
-        
-        # 1. RSI
-        rsi_val = calc_rsi(
-            self.prices, 
-            self.indicator_config['rsi']['period']
-        )
-        if rsi_val is not None:
-            if rsi_val < 20:
-                signals.append(1)  # Tín hiệu mua
-            elif rsi_val > 80:
-                signals.append(-1) # Tín hiệu bán
-        
-        # 2. MACD
-        macd_line, macd_signal = calc_macd(
-            self.prices,
-            self.indicator_config['macd']['fast'],
-            self.indicator_config['macd']['slow'],
-            self.indicator_config['macd']['signal']
-        )
-        if macd_line is not None and macd_signal is not None:
-            if macd_line > macd_signal:
-                signals.append(1)
-            elif macd_line < macd_signal:
-                signals.append(-1)
-        
-        # 3. Bollinger Bands
-        upper, middle, lower = calc_bollinger_bands(
-            self.prices,
-            self.indicator_config['bollinger']['period'],
-            self.indicator_config['bollinger']['std_dev']
-        )
-        if upper is not None and lower is not None:
-            current_price = self.prices[-1]
-            if current_price < lower:
-                signals.append(1)
-            elif current_price > upper:
-                signals.append(-1)
-        
-        # 4. Stochastic
-        k, d = calc_stochastic(
-            self.prices,
-            self.lows,
-            self.highs,
-            self.indicator_config['stochastic']['period'],
-            self.indicator_config['stochastic']['k_period']
-        )
-        if k is not None and d is not None:
-            if k > 80 and d > 80 and k < d:
-                signals.append(1)
-            elif k < 20 and d < 20 and k > d:
-                signals.append(-1)
-        
-        # 5. VWMA
-        vwma = calc_vwma(
-            self.prices,
-            self.volumes,
-            self.indicator_config['vwma']['period']
-        )
-        if vwma is not None:
-            if self.prices[-1] > vwma:
-                signals.append(1)
-            else:
-                signals.append(-1)
-        
-        # Tính SL động dựa trên ATR
-        atr = calc_atr(
-            self.highs,
-            self.lows,
-            self.closes,
-            self.indicator_config['atr']['period']
-        )
-        if atr is not None and self.entry > 0:
-            # SL = 1.125 * ATR (tính theo % giá vào)
-            atr_percent = (atr / self.entry) * 100
-            self.dynamic_sl = min(self.sl, max(1, 1.125 * atr_percent))
-        
-        # Xác định tín hiệu tổng hợp
-        if not signals:
-            return None
-            
-        # Chiến lược kết hợp: Cần ít nhất 3 tín hiệu đồng thuận
-        buy_signals = sum(1 for s in signals if s > 0)
-        sell_signals = sum(1 for s in signals if s < 0)
-        
-        if buy_signals >= 4:
-            return "BUY"
-        elif sell_signals >= 4:
-            return "SELL"
-            
-        return None
-
-    def open_position(self, side):
-        # Kiểm tra lại trạng thái trước khi vào lệnh
-        self.check_position_status()
-        
-        if self.position_open:
-            self.log(f"⚠️ Đã có vị thế mở, không vào lệnh mới")
-            return
-            
-        try:
-            # Hủy lệnh tồn đọng
-            cancel_all_orders(self.symbol)
-            
-            # Đặt đòn bẩy
-            if not set_leverage(self.symbol, self.lev):
-                self.log(f"Không thể đặt đòn bẩy {self.lev}")
-                return
-            
-            # Tính toán khối lượng
-            balance = get_balance()
-            if balance <= 0:
-                self.log(f"Không đủ số dư USDT")
-                return
-            
-            # Giới hạn % số dư sử dụng
-            if self.percent > 100:
-                self.percent = 100
-            elif self.percent < 1:
-                self.percent = 1
-                
-            usdt_amount = balance * (self.percent / 100)
-            price = get_current_price(self.symbol)
-            if price <= 0:
-                self.log(f"Lỗi lấy giá")
-                return
-                
-            step = get_step_size(self.symbol)
-            if step <= 0:
-                step = 0.001
-            
-            # Tính số lượng với đòn bẩy
-            qty = (usdt_amount * self.lev) / price
-            
-            # Làm tròn số lượng theo step size (luôn làm tròn xuống)
-            if step > 0:
-                steps = qty / step
-                qty = math.floor(steps) * step  # Luôn làm tròn xuống
-            
-            qty = max(qty, 0)
-            qty = round(qty, 8)
-            
-            min_qty = step
-            
-            if qty < min_qty:
-                self.log(f"⚠️ Số lượng quá nhỏ ({qty}), không đặt lệnh")
-                return
-                
-            # Giới hạn số lần thử
-            self.position_attempt_count += 1
-            if self.position_attempt_count > self.max_position_attempts:
-                self.log(f"⚠️ Đã đạt giới hạn số lần thử mở lệnh ({self.max_position_attempts})")
-                self.position_attempt_count = 0
-                return
-                
-            # Đặt lệnh
-            res = place_order(self.symbol, side, qty)
-            if not res:
-                self.log(f"Lỗi khi đặt lệnh")
-                return
-                
-            executed_qty = float(res.get('executedQty', 0))
-            if executed_qty <= 0:
-                self.log(f"Lệnh không khớp, số lượng thực thi: {executed_qty}")
-                return
-
-            # Cập nhật trạng thái
-            self.entry = float(res.get('avgPrice', price))
-            self.side = side
-            self.qty = executed_qty if side == "BUY" else -executed_qty
-            self.status = "open"
-            self.position_open = True
-            self.position_attempt_count = 0  # Reset số lần thử
-            
-            # Thông báo qua Telegram
-            message = (
-                f"✅ <b>ĐÃ MỞ VỊ THẾ {self.symbol}</b>\n"
-                f"📌 Hướng: {side}\n"
-                f"🏷️ Giá vào: {self.entry:.4f}\n"
-                f"📊 Khối lượng: {executed_qty}\n"
-                f"💵 Giá trị: {executed_qty * self.entry:.2f} USDT\n"
-                f"⚖️ Đòn bẩy: {self.lev}x\n"
-                f"🎯 TP: {self.tp}% | 🛡️ SL: {self.dynamic_sl:.2f}%"
-            )
-            self.log(message)
-
-        except Exception as e:
-            self.position_open = False
-            self.log(f"❌ Lỗi khi vào lệnh: {str(e)}")
-    
     def close_position(self, reason=""):
         """Đóng vị thế với số lượng chính xác, kiểm tra kết quả từ Binance"""
         try:
@@ -1056,6 +1020,105 @@ class IndicatorBot:
         except Exception as e:
             self.log(f"❌ Lỗi nghiêm trọng khi đóng lệnh: {str(e)}")
 
+    def open_position(self, side):
+        # Kiểm tra lại trạng thái trước khi vào lệnh
+        self.check_position_status()
+        
+        if self.position_open:
+            self.log(f"⚠️ Đã có vị thế mở, không vào lệnh mới")
+            return
+            
+        try:
+            # Hủy lệnh tồn đọng
+            cancel_all_orders(self.symbol)
+            
+            # Đặt đòn bẩy
+            if not set_leverage(self.symbol, self.lev):
+                self.log(f"Không thể đặt đòn bẩy {self.lev}")
+                return
+            
+            # Tính toán khối lượng
+            balance = get_balance()
+            if balance <= 0:
+                self.log(f"Không đủ số dư USDT")
+                return
+            
+            # Giới hạn % số dư sử dụng
+            if self.percent > 100:
+                self.percent = 100
+            elif self.percent < 1:
+                self.percent = 1
+                
+            usdt_amount = balance * (self.percent / 100)
+            price = get_current_price(self.symbol)
+            if price <= 0:
+                self.log(f"Lỗi lấy giá")
+                return
+                
+            step = get_step_size(self.symbol)
+            if step <= 0:
+                step = 0.001
+            
+            # Tính số lượng với đòn bẩy
+            qty = (usdt_amount * self.lev) / price
+            
+            # Làm tròn số lượng theo step size (luôn làm tròn xuống)
+            if step > 0:
+                steps = qty / step
+                qty = math.floor(steps) * step  # Luôn làm tròn xuống
+            
+            qty = max(qty, 0)
+            qty = round(qty, 8)
+            
+            min_qty = step
+            
+            if qty < min_qty:
+                self.log(f"⚠️ Số lượng quá nhỏ ({qty}), không đặt lệnh")
+                return
+                
+            # Giới hạn số lần thử
+            self.position_attempt_count += 1
+            if self.position_attempt_count > self.max_position_attempts:
+                self.log(f"⚠️ Đã đạt giới hạn số lần thử mở lệnh ({self.max_position_attempts})")
+                self.position_attempt_count = 0
+                return
+                
+            # Đặt lệnh
+            res = place_order(self.symbol, side, qty)
+            if not res:
+                self.log(f"Lỗi khi đặt lệnh")
+                return
+                
+            executed_qty = float(res.get('executedQty', 0))
+            if executed_qty <= 0:
+                self.log(f"Lệnh không khớp, số lượng thực thi: {executed_qty}")
+                return
+
+            # Cập nhật trạng thái
+            self.entry = float(res.get('avgPrice', price))
+            self.side = side
+            self.qty = executed_qty if side == "BUY" else -executed_qty
+            self.status = "open"
+            self.position_open = True
+            self.position_attempt_count = 0  # Reset số lần thử
+            self.best_profit = 0  # Reset lợi nhuận tốt nhất
+            
+            # Thông báo qua Telegram
+            message = (
+                f"✅ <b>ĐÃ MỞ VỊ THẾ {self.symbol}</b>\n"
+                f"📌 Hướng: {side}\n"
+                f"🏷️ Giá vào: {self.entry:.4f}\n"
+                f"📊 Khối lượng: {executed_qty}\n"
+                f"💵 Giá trị: {executed_qty * self.entry:.2f} USDT\n"
+                f"⚖️ Đòn bẩy: {self.lev}x\n"
+                f"🎯 TP: {self.tp}% | 🛡️ SL: {self.dynamic_sl:.2f}%"
+            )
+            self.log(message)
+
+        except Exception as e:
+            self.position_open = False
+            self.log(f"❌ Lỗi khi vào lệnh: {str(e)}")
+
 # ========== QUẢN LÝ BOT CHẠY NỀN VÀ TƯƠNG TÁC TELEGRAM ==========
 class BotManager:
     def __init__(self):
@@ -1119,8 +1182,7 @@ class BotManager:
             
             # Tạo bot mới
             bot = IndicatorBot(
-                symbol, lev, percent, tp, sl, 
-                indicator_config, self.ws_manager
+                symbol, lev, percent, tp, sl, self.ws_manager
             )
             self.bots[symbol] = bot
             self.log(f"✅ Đã thêm bot: {symbol} | ĐB: {lev}x | %: {percent} | TP/SL: {tp}%/{sl}%")
@@ -1444,8 +1506,7 @@ def main():
                     config['lev'],
                     config['percent'],
                     config['tp'],
-                    config['sl'],
-                    config.get('indicator_config')
+                    config['sl']
                 )
     else:
         manager.log("⚠️ Không có cấu hình bot nào được tìm thấy!")
