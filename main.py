@@ -773,9 +773,9 @@ class IndicatorBot:
             self.indicator_config['rsi']['period']
         )
         if rsi_val is not None:
-            if rsi_val < 30:
+            if rsi_val < 25:
                 signals.append(1)  # Tín hiệu mua
-            elif rsi_val > 70:
+            elif rsi_val > 75:
                 signals.append(-1) # Tín hiệu bán
         
         # 2. MACD
@@ -850,9 +850,9 @@ class IndicatorBot:
         buy_signals = sum(1 for s in signals if s > 0)
         sell_signals = sum(1 for s in signals if s < 0)
         
-        if buy_signals >= 5:
+        if buy_signals >= 3:
             return "BUY"
-        elif sell_signals >= 5:
+        elif sell_signals >= 3:
             return "SELL"
             
         return None
@@ -955,7 +955,6 @@ class IndicatorBot:
             self.position_open = False
             self.log(f"❌ Lỗi khi vào lệnh: {str(e)}")
     def close_position(self, reason=""):
-    """Đóng vị thế với số lượng chính xác, kiểm tra kết quả từ Binance"""
         try:
             # Kiểm tra lại trạng thái trước khi đóng
             self.check_position_status()
