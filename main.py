@@ -598,7 +598,7 @@ class IndicatorBot:
             return None
     
         # Chờ 60 giây để lấy RSI tại thời điểm mới
-        time.sleep(60)
+        time.sleep(5)
     
         prices_arr = np.array(self.prices)
         b = calc_rsi(prices_arr)
