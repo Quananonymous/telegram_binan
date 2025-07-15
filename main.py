@@ -598,28 +598,59 @@ class IndicatorBot:
             return None
     
         # Chờ 60 giây để lấy RSI tại thời điểm mới
-        time.sleep(3)
-    
-        prices_arr = np.array(self.prices)
-        b = calc_rsi(prices_arr)
-    
-        if b is None:
-            return None
+        if a < 40:
+            time.sleep(3)
+        
+            prices_arr = np.array(self.prices)
+            b = calc_rsi(prices_arr)
 
-        time.sleep(3)
-    
-        prices_arr = np.array(self.prices)
-        c = calc_rsi(prices_arr)
-    
-        if c is None:
-            return None
+        
+            if b is None:
+                return None
+            if a > b:
+                
+                time.sleep(3)
+            
+                prices_arr = np.array(self.prices)
+                c = calc_rsi(prices_arr)
+            
+                if c is None:
+                    return None
+                if b > c:
+                    time.sleep(3)
+                    prices_arr = np.array(self.prices)
+                    d= calc_rsi(prices_arr)       
+                    if d is None:
+                        return None
+                    if d < c:
+                        return "SELL"
+        elif a > 60:
+            time.sleep(3)
+        
+            prices_arr = np.array(self.prices)
+            b = calc_rsi(prices_arr)
 
+            if b is None:
+                return None
+            if a < b:
+                
+                time.sleep(3)
+            
+                prices_arr = np.array(self.prices)
+                c = calc_rsi(prices_arr)
+            
+                if c is None:
+                    return None
 
-        if (a > b and c > b and b > 75):
-            return "BUY"
-        elif (a < b and c < b and b > 25):
-            return "SELL"
-    
+                if b < c:
+                    time.sleep(3)
+                    prices_arr = np.array(self.prices)
+                    d= calc_rsi(prices_arr)       
+                    if d is None:
+                        return None
+                    if d > c:
+                        return "BUY"
+
         return None
 
 
