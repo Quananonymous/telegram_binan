@@ -598,38 +598,13 @@ class IndicatorBot:
             return None
     
         # Chờ 60 giây để lấy RSI tại thời điểm mới
-        if a > 50:
+        if a > 90:
             time.sleep(3)
         
             prices_arr = np.array(self.prices)
             b = calc_rsi(prices_arr)
 
         
-            if b is None:
-                return None
-            if a > b:
-                
-                time.sleep(3)
-            
-                prices_arr = np.array(self.prices)
-                c = calc_rsi(prices_arr)
-            
-                if c is None:
-                    return None
-                if b > c:
-                    time.sleep(3)
-                    prices_arr = np.array(self.prices)
-                    d= calc_rsi(prices_arr)       
-                    if d is None:
-                        return None
-                    if d < c and 38.2 > d > 30.9:
-                        return "SELL"
-        elif a < 50:
-            time.sleep(3)
-        
-            prices_arr = np.array(self.prices)
-            b = calc_rsi(prices_arr)
-
             if b is None:
                 return None
             if a < b:
@@ -641,15 +616,28 @@ class IndicatorBot:
             
                 if c is None:
                     return None
+                if b > c:
+                    return "SELL"
+        elif a < 10:
+            time.sleep(3)
+        
+            prices_arr = np.array(self.prices)
+            b = calc_rsi(prices_arr)
+
+            if b is None:
+                return None
+            if a > b:
+                
+                time.sleep(3)
+            
+                prices_arr = np.array(self.prices)
+                c = calc_rsi(prices_arr)
+            
+                if c is None:
+                    return None
 
                 if b < c:
-                    time.sleep(3)
-                    prices_arr = np.array(self.prices)
-                    d= calc_rsi(prices_arr)       
-                    if d is None:
-                        return None
-                    if d > c and 80.9 > d > 61.8:
-                        return "BUY"
+                    return "BUY"
 
         return None
 
