@@ -1,3 +1,7 @@
+from your_module_or_current_file import get_candle_signal
+from binance.client import Client
+import pandas as pd
+import talib
 import json
 import hmac
 import hashlib
@@ -484,8 +488,8 @@ class IndicatorBot:
                         time.sleep(1)
                         continue
                     
-                    signal = self.get_signal()
-                    
+                    signal = get_candle_signal(symbol)
+
                     if signal and current_time - self.last_trade_time > 60:
                         self.open_position(signal)
                         self.last_trade_time = current_time
@@ -585,62 +589,60 @@ class IndicatorBot:
         except Exception as e:
             if time.time() - self.last_error_log_time > 10:
                 self.log(f"Lỗi kiểm tra TP/SL: {str(e)}")
-                self.last_error_log_time = time.time()
+                self.last_error_log_time = time.time()    
 
-    def get_signal(self):
-        if len(self.prices) < 40:
+    def get_candle_signal(symbol='BTCUSDT', interval='5m', limit=100):
+        """
+        Lấy tín hiệu giao dịch dựa vào mô hình nến Nhật từ dữ liệu Binance.
+    
+        Trả về:
+            - 'buy' nếu có mô hình tăng giá
+            - 'sell' nếu có mô hình giảm giá
+            - None nếu không có tín hiệu rõ ràng
+        """
+    
+        client = Client(api_key=None, api_secret=None)
+    
+        try:
+            klines = client.get_klines(symbol=symbol, interval=interval, limit=limit)
+        except Exception as e:
+            print(f"Lỗi lấy dữ liệu từ Binance: {e}")
             return None
     
-        prices_arr = np.array(self.prices)
-        a = calc_rsi(prices_arr)
+        df = pd.DataFrame(klines, columns=[
+            'time', 'open', 'high', 'low', 'close', 'volume',
+            'close_time', 'quote_asset_volume', 'number_of_trades',
+            'taker_buy_base', 'taker_buy_quote', 'ignore'
+        ])
+        df = df.astype(float)
+        df['time'] = pd.to_datetime(df['time'], unit='ms')
     
-        if a is None:
-            return None
+        open_ = df['open'].values
+        high = df['high'].values
+        low = df['low'].values
+        close = df['close'].values
     
-        # Chờ 60 giây để lấy RSI tại thời điểm mới
-        if a > 45:
-            time.sleep(3)
-        
-            prices_arr = np.array(self.prices)
-            b = calc_rsi(prices_arr)
-
-        
-            if b is None:
-                return None
-            if a > b:
-                
-                time.sleep(3)
-            
-                prices_arr = np.array(self.prices)
-                c = calc_rsi(prices_arr)
-            
-                if c is None:
-                    return None
-                if b > c and 38.2 > c > 30.9:
-                    return "SELL"
-        elif a < 55:
-            time.sleep(3)
-        
-            prices_arr = np.array(self.prices)
-            b = calc_rsi(prices_arr)
-
-            if b is None:
-                return None
-            if a < b:
-                
-                time.sleep(3)
-            
-                prices_arr = np.array(self.prices)
-                c = calc_rsi(prices_arr)
-            
-                if c is None:
-                    return None
-
-                if b < c and 61.8 < c < 80.9:
-                    return "BUY"
-
+        # Mô hình nến: tên và hàm tương ứng từ TA-Lib
+        patterns = {
+            'Hammer': talib.CDLHAMMER(open_, high, low, close),
+            'ShootingStar': talib.CDLSHOOTINGSTAR(open_, high, low, close),
+            'Engulfing': talib.CDLENGULFING(open_, high, low, close),
+            'Doji': talib.CDLDOJI(open_, high, low, close),
+            'MorningStar': talib.CDLMORNINGSTAR(open_, high, low, close),
+            'EveningStar': talib.CDLEVENINGSTAR(open_, high, low, close),
+        }
+    
+        last_idx = -1
+        for name, result in patterns.items():
+            signal = result[last_idx]
+            if signal > 0:
+                print(f"🔼 {name} (Bullish) phát hiện ở {df['time'].iloc[last_idx]}")
+                return 'buy'
+            elif signal < 0:
+                print(f"🔽 {name} (Bearish) phát hiện ở {df['time'].iloc[last_idx]}")
+                return 'sell'
+    
         return None
-
 
     def open_position(self, side):
         # Kiểm tra lại trạng thái trước khi vào lệnh
