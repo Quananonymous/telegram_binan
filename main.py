@@ -1,4 +1,4 @@
-from your_module_or_current_file import get_candle_signal
+
 from binance.client import Client
 import pandas as pd
 import talib
