@@ -422,13 +422,12 @@ class WebSocketManager:
             self.remove_symbol(symbol)
 
 # ========== BOT CHÍNH VỚI ĐÓNG LỆNH CHÍNH XÁC ==========
-
 def get_candle_signal(symbol='BTCUSDT', interval='5m', limit=100):
     """
     Trả về:
-        - 'buy' nếu mô hình tăng giá
-        - 'sell' nếu mô hình giảm giá
-        - None nếu không có tín hiệu rõ
+        - 'BUY' nếu có mô hình nến tăng giá
+        - 'SELL' nếu có mô hình nến giảm giá
+        - None nếu không có tín hiệu
     """
 
     client = Client(api_key=None, api_secret=None)
@@ -436,7 +435,7 @@ def get_candle_signal(symbol='BTCUSDT', interval='5m', limit=100):
     try:
         klines = client.get_klines(symbol=symbol, interval=interval, limit=limit)
     except Exception:
-        return None  # Không có dữ liệu thì không tín hiệu
+        return None
 
     df = pd.DataFrame(klines, columns=[
         'time', 'open', 'high', 'low', 'close', 'volume',
@@ -446,7 +445,7 @@ def get_candle_signal(symbol='BTCUSDT', interval='5m', limit=100):
     df = df.astype(float)
     df['time'] = pd.to_datetime(df['time'], unit='ms')
 
-    # Chuẩn hóa tên cột cho thư viện candlestick
+    # Các cột cần thiết cho mô hình nến
     df.rename(columns={
         'open': 'Open',
         'high': 'High',
@@ -454,20 +453,53 @@ def get_candle_signal(symbol='BTCUSDT', interval='5m', limit=100):
         'close': 'Close'
     }, inplace=True)
 
-    # Áp dụng các mô hình nến cơ bản
-    candlestick.engulfing(df)
-    candlestick.hammer(df)
-    candlestick.shooting_star(df)
+    # === Lấy 2 nến gần nhất ===
+    if len(df) < 2:
+        return None
 
-    latest = df.iloc[-1]
+    prev = df.iloc[-2]
+    curr = df.iloc[-1]
 
-    # Ưu tiên tín hiệu mạnh: Engulfing > Hammer > Shooting Star
-    if latest.get('engulfing') == 'bullish' or latest.get('hammer') == True:
-        return 'buy'
-    elif latest.get('engulfing') == 'bearish' or latest.get('shooting_star') == True:
-        return 'sell'
+    # === Các mô hình nến và điều kiện ===
 
+    # Bullish Engulfing
+    if (prev['Close'] < prev['Open'] and
+        curr['Close'] > curr['Open'] and
+        curr['Open'] < prev['Close'] and
+        curr['Close'] > prev['Open']):
+        return 'BUY'
+
+    # Bearish Engulfing
+    if (prev['Close'] > prev['Open'] and
+        curr['Close'] < curr['Open'] and
+        curr['Open'] > prev['Close'] and
+        curr['Close'] < prev['Open']):
+        return 'SELL'
+
+    # Hammer (đuôi dài, thân nhỏ, nằm gần đỉnh)
+    body = abs(curr['Close'] - curr['Open'])
+    candle_range = curr['High'] - curr['Low']
+    lower_shadow = min(curr['Close'], curr['Open']) - curr['Low']
+    if (body < candle_range * 0.3 and
+        lower_shadow > body * 2 and
+        (curr['High'] - max(curr['Close'], curr['Open'])) < body):
+        return 'BUY'
+
+    # Shooting Star (đuôi trên dài, thân nhỏ, nằm gần đáy)
+    upper_shadow = curr['High'] - max(curr['Close'], curr['Open'])
+    if (body < candle_range * 0.3 and
+        upper_shadow > body * 2 and
+        (min(curr['Close'], curr['Open']) - curr['Low']) < body):
+        return 'SELL'
+
+    # Doji (thân nến cực nhỏ)
+    if abs(curr['Close'] - curr['Open']) <= candle_range * 0.05:
+        # Tùy bối cảnh, Doji thường là tín hiệu đảo chiều => trung lập
+        return None
+
+    # Không có mô hình rõ ràng
     return None
+
 
 
 class IndicatorBot:
