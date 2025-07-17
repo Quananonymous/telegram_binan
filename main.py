@@ -591,7 +591,7 @@ class IndicatorBot:
                 self.log(f"Lỗi kiểm tra TP/SL: {str(e)}")
                 self.last_error_log_time = time.time()    
 
-    def get_candle_signal(self.symbol, interval='5m', limit=100):
+    def get_candle_signal(symbol, interval='5m', limit=100):
         """
         Trả về:
             - 'BUY' nếu có mô hình nến tăng giá
