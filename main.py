@@ -1,7 +1,6 @@
 
 from binance.client import Client
 import pandas as pd
-from candlestick import candlestick
 import json
 import hmac
 import hashlib
