@@ -565,7 +565,7 @@ class IndicatorBot:
                         time.sleep(1)
                         continue
                     
-                    signal = get_candle_signal(symbol)
+                    signal = get_candle_signal(self.symbol)
 
                     if signal and current_time - self.last_trade_time > 60:
                         self.open_position(signal)
