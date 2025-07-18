@@ -421,7 +421,7 @@ class WebSocketManager:
             self.remove_symbol(symbol)
 
 # ========== BOT CHÍNH VỚI ĐÓNG LỆNH CHÍNH XÁC ==========
-def get_candle_signal(symbol, interval='5m', limit=100):
+def get_candle_signal(symbol, interval='1m', limit=100):
     """
     Trả về:
         - 'BUY' nếu có mô hình nến tăng giá
