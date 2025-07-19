@@ -607,9 +607,9 @@ class IndicatorBot:
     
         r1, r2, r3, r4, r5 = self.rsi_history[-5:]
     
-        if r3 > r4 > r5 and 40 < r5 < 45 and r3 > 80:
+        if r3 > r4 > r5 and 90 < r5 < 70:
             return "SELL"
-        elif r3 < r4 < r5 and 60 > r5 > 55 and r3 < 80:
+        elif r3 < r4 < r5 and 30 > r5 > 10:
             return "BUY"
     
         return None
