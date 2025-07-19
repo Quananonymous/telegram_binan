@@ -505,7 +505,11 @@ class IndicatorBot:
                                 if roi >= 100 or roi <= -200:
                                     self.close_position(f"🔄 ROI {roi:.2f}% vượt ngưỡng, đảo chiều sang {signal}")
 
-                
+
+                    if signal and current_time - self.last_trade_time > 60:
+                            self.open_position(signal)
+                            self.last_trade_time = current_time
+
                 # Kiểm tra TP/SL cho vị thế đang mở
                 if self.position_open and self.status == "open":
                     self.check_tp_sl()
