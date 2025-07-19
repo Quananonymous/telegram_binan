@@ -598,7 +598,7 @@ class IndicatorBot:
                 self.close_position(f"✅ Đạt TP {self.tp}% (ROI: {roi:.2f}%)")
             elif roi <= -self.sl:
                 self.close_position(f"❌ Đạt SL {self.sl}% (ROI: {roi:.2f}%)")
-            elif roi = 0:
+            elif roi == 0:
                 return None
             
                 
