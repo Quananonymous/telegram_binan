@@ -1,6 +1,3 @@
-
-from binance.client import Client
-import pandas as pd
 import json
 import hmac
 import hashlib
@@ -421,84 +418,6 @@ class WebSocketManager:
             self.remove_symbol(symbol)
 
 # ========== BOT CHÍNH VỚI ĐÓNG LỆNH CHÍNH XÁC ==========
-def get_candle_signal(symbol, interval='1m', limit=100):
-    """
-    Trả về:
-        - 'BUY' nếu có mô hình nến tăng giá
-        - 'SELL' nếu có mô hình nến giảm giá
-        - None nếu không có tín hiệu
-    """
-
-    client = Client(api_key=None, api_secret=None)
-
-    try:
-        klines = client.get_klines(symbol=symbol, interval=interval, limit=limit)
-    except Exception:
-        return None
-
-    df = pd.DataFrame(klines, columns=[
-        'time', 'open', 'high', 'low', 'close', 'volume',
-        'close_time', 'quote_asset_volume', 'number_of_trades',
-        'taker_buy_base', 'taker_buy_quote', 'ignore'
-    ])
-    df = df.astype(float)
-    df['time'] = pd.to_datetime(df['time'], unit='ms')
-
-    # Các cột cần thiết cho mô hình nến
-    df.rename(columns={
-        'open': 'Open',
-        'high': 'High',
-        'low': 'Low',
-        'close': 'Close'
-    }, inplace=True)
-
-    # === Lấy 2 nến gần nhất ===
-    if len(df) < 2:
-        return None
-
-    prev = df.iloc[-2]
-    curr = df.iloc[-1]
-
-    # === Các mô hình nến và điều kiện ===
-
-    # Bullish Engulfing
-    if (prev['Close'] < prev['Open'] and
-        curr['Close'] > curr['Open'] and
-        curr['Open'] < prev['Close'] and
-        curr['Close'] > prev['Open']):
-        return 'BUY'
-
-    # Bearish Engulfing
-    if (prev['Close'] > prev['Open'] and
-        curr['Close'] < curr['Open'] and
-        curr['Open'] > prev['Close'] and
-        curr['Close'] < prev['Open']):
-        return 'SELL'
-
-    # Hammer (đuôi dài, thân nhỏ, nằm gần đỉnh)
-    body = abs(curr['Close'] - curr['Open'])
-    candle_range = curr['High'] - curr['Low']
-    lower_shadow = min(curr['Close'], curr['Open']) - curr['Low']
-    if (body < candle_range * 0.3 and
-        lower_shadow > body * 2 and
-        (curr['High'] - max(curr['Close'], curr['Open'])) < body):
-        return 'BUY'
-
-    # Shooting Star (đuôi trên dài, thân nhỏ, nằm gần đáy)
-    upper_shadow = curr['High'] - max(curr['Close'], curr['Open'])
-    if (body < candle_range * 0.3 and
-        upper_shadow > body * 2 and
-        (min(curr['Close'], curr['Open']) - curr['Low']) < body):
-        return 'SELL'
-
-    # Doji (thân nến cực nhỏ)
-    if abs(curr['Close'] - curr['Open']) <= candle_range * 0.05:
-        # Tùy bối cảnh, Doji thường là tín hiệu đảo chiều => trung lập
-        return None
-
-    # Không có mô hình rõ ràng
-    return None
-
 class IndicatorBot:
     def __init__(self, symbol, lev, percent, tp, sl, indicator, ws_manager):
         self.symbol = symbol.upper()
@@ -513,6 +432,8 @@ class IndicatorBot:
         self.qty = 0
         self.entry = 0
         self.prices = []
+        self.rsi_history = []
+
         self._stop = False
         self.position_open = False
         self.last_trade_time = 0
@@ -546,6 +467,12 @@ class IndicatorBot:
         # Giới hạn số lượng giá lưu trữ
         if len(self.prices) > 100:
             self.prices = self.prices[-100:]
+        rsi = calc_rsi(np.array(self.prices))
+        if rsi is not None:
+            self.rsi_history.append(rsi)
+            if len(self.rsi_history) > 15:
+                self.rsi_history = self.rsi_history[-15:]
+
 
     def _run(self):
         """Luồng chính quản lý bot với kiểm soát lỗi chặt chẽ"""
@@ -565,8 +492,8 @@ class IndicatorBot:
                         time.sleep(1)
                         continue
                     
-                    signal = get_candle_signal(self.symbol)
-
+                    signal = self.get_signal()
+                    
                     if signal and current_time - self.last_trade_time > 60:
                         self.open_position(signal)
                         self.last_trade_time = current_time
@@ -666,7 +593,20 @@ class IndicatorBot:
         except Exception as e:
             if time.time() - self.last_error_log_time > 10:
                 self.log(f"Lỗi kiểm tra TP/SL: {str(e)}")
-                self.last_error_log_time = time.time()    
+                self.last_error_log_time = time.time()
+
+    def get_signal(self):
+        if len(self.rsi_history) < 5:
+            return None
+    
+        r1, r2, r3, r4, r5 = self.rsi_history[-5:]
+    
+        if r3 > r4 > r5 and r5 < 45 and r3 > 70:
+            return "SELL"
+        elif r3 < r4 < r5 and r5 > 65 and r3 < 30:
+            return "BUY"
+    
+        return None
 
 
     def open_position(self, side):
