@@ -602,14 +602,14 @@ class IndicatorBot:
                 self.last_error_log_time = time.time()
 
     def get_signal(self):
-        if len(self.rsi_history) < 5:
+        if len(self.rsi_history) < 3:
             return None
     
-        r1, r2, r3, r4, r5 = self.rsi_history[-5:]
+        r1, r3, r3 = self.rsi_history[-3:]
     
-        if r3 > r4 > r5 and 90 < r5 < 70:
+        if r3 > r4 > r5 and r3 - r5 > 50:
             return "SELL"
-        elif r3 < r4 < r5 and 30 > r5 > 10:
+        elif r3 < r4 < r5 and r5 - r3 > 50:
             return "BUY"
     
         return None
