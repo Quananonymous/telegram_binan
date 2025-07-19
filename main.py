@@ -503,6 +503,12 @@ class IndicatorBot:
                     self.check_tp_sl()
                 
                 time.sleep(1)
+                    # Kiểm tra tín hiệu ngược chiều để đóng vị thế
+                signal = self.get_signal()
+                if signal:
+                    if (self.side == "BUY" and signal == "SELL") or (self.side == "SELL" and signal == "BUY"):
+                        self.close_position(f"🔄 Tín hiệu đảo chiều sang {signal}")
+
                 
             except Exception as e:
                 if time.time() - self.last_error_log_time > 10:
@@ -601,9 +607,9 @@ class IndicatorBot:
     
         r1, r2, r3, r4, r5 = self.rsi_history[-5:]
     
-        if r3 > r4 > r5 and r5 < 45 and r3 > 70:
+        if r3 > r4 > r5 and 40 < r5 < 45 and r3 > 80:
             return "SELL"
-        elif r3 < r4 < r5 and r5 > 65 and r3 < 30:
+        elif r3 < r4 < r5 and 60 > r5 > 55 and r3 < 80:
             return "BUY"
     
         return None
