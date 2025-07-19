@@ -605,11 +605,11 @@ class IndicatorBot:
         if len(self.rsi_history) < 3:
             return None
     
-        r1, r3, r3 = self.rsi_history[-3:]
+        r1, r2, r3 = self.rsi_history[-3:]
     
-        if r3 > r4 > r5 and r3 - r5 > 50:
+        if r1 > r2 > r3 and r1 - r3 > 50:
             return "SELL"
-        elif r3 < r4 < r5 and r5 - r3 > 50:
+        elif r1 < r2 < r3 and r3 - r1 > 50:
             return "BUY"
     
         return None
