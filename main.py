@@ -502,7 +502,7 @@ class IndicatorBot:
                                 invested = self.entry * abs(self.qty) / self.lev
                                 roi = (profit / invested) * 100 if invested != 0 else 0
                     
-                                if roi >= 50 or roi <= -500:
+                                if roi >= 30 or roi <= -500:
                                     self.close_position(f"🔄 ROI {roi:.2f}% vượt ngưỡng, đảo chiều sang {signal}")
 
 
@@ -617,9 +617,9 @@ class IndicatorBot:
     
         r1, r2, r3 = self.rsi_history[-3:]
     
-        if r1 > r2 > r3 and r1 - r3 > 50:
+        if r1 > r2 > r3 and r1 - r3 > 30:
             return "SELL"
-        elif r1 < r2 < r3 and r3 - r1 > 50:
+        elif r1 < r2 < r3 and r3 - r1 > 30:
             return "BUY"
     
         return None
