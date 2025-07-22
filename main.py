@@ -479,9 +479,9 @@ class IndicatorBot:
     
         r1, r2, r3, r4, r5 = self.rsi_history[-5:]
     
-        if r1 < r2 < r3 and r5 < r4 < r3 and r3 > 80 and r3 - r5 > 25:
+        if r1 < r2 < r3 and r5 < r4 < r3 and r3 > 80:
             return "SELL"
-        elif r1 > r2 > r3 and r3< r4 < r5  and r3 < 20 and r5 - r3 > 25:
+        elif r1 > r2 > r3 and r3< r4 < r5  and r3 < 20:
             return "BUY"
     
         return None
@@ -503,9 +503,9 @@ class IndicatorBot:
             a_2 = float(now_candle[2])
             b_2 = float(now_candle[3])
             if float(last_candle[5]) <= float(now_candle[5]):
-                if (a_1 + b_1)/2 < b_2 and self.get_signal_rsi() == "BUY":
+                if (a_1 + b_1)/2 < (b_2 + a_2)/2 and a_1 < a_2 and self.get_signal_rsi() == "BUY":
                     return "BUY"
-                elif (a_1 + b_1)/2 > a_2 and self.get_signal_rsi() == "SELL":
+                elif (a_1 + b_1)/2 > (a_2 + b_2)/2 and b_1 > b_2 and self.get_signal_rsi() == "SELL":
                     return "SELL"
                 else:
                     return None
