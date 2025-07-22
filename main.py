@@ -500,12 +500,16 @@ class IndicatorBot:
             last_candle = data[-2]
             a_1 = float(last_candle[2])
             b_1 = float(last_candle[3])
+            c_1 = float(last_candle[1])
+            d_1 = float(last_candle[4])
             a_2 = float(now_candle[2])
             b_2 = float(now_candle[3])
+            c_2 = float(now_candle[1])
+            d_2 = float(now_candle[4])
             if float(last_candle[5]) <= float(now_candle[5]):
-                if (a_1 + b_1)/2 < (b_2 + a_2)/2 and a_1 < a_2 and self.get_signal_rsi() == "BUY":
+                if (a_1 + b_1 + c_1 + d_1)/4 < (b_2 + a_2 +c_2 + d_2)/4 and c_2 >= b_2 > (a_1 + b_1)/2 and self.get_signal_rsi() == "BUY":
                     return "BUY"
-                elif (a_1 + b_1)/2 > (a_2 + b_2)/2 and b_1 > b_2 and self.get_signal_rsi() == "SELL":
+                elif (a_1 + b_1 + c_1 + d_1)/4 > (b_2 + a_2 +c_2 + d_2)/4 and (a_1 + b_1)/2 > a_2 > c_2 and self.get_signal_rsi() == "SELL":
                     return "SELL"
                 else:
                     return None
