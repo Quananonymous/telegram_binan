@@ -442,7 +442,7 @@ class IndicatorBot:
         self.last_position_check = 0
         self.last_error_log_time = 0
         self.last_close_time = 0
-        self.cooldown_period = 10  # Thời gian chờ sau khi đóng lệnh
+        self.cooldown_period = 60  # Thời gian chờ sau khi đóng lệnh
         self.max_position_attempts = 3  # Số lần thử tối đa
         self.position_attempt_count = 0
         
@@ -507,9 +507,9 @@ class IndicatorBot:
             c_2 = float(now_candle[1])
             d_2 = float(now_candle[4])
             if float(last_candle[5]) <= float(now_candle[5]):
-                if (a_1 + b_1 + c_1 + d_1)/4 < (b_2 + a_2 +c_2 + d_2)/4 and c_2 >= b_2 > (a_1 + b_1)/2 and self.get_signal_rsi() == "BUY":
+                if (a_1 + b_1 + c_1 + d_1)/4 < (b_2 + a_2 +c_2 + d_2)/4 and self.get_signal_rsi() == "BUY":
                     return "BUY"
-                elif (a_1 + b_1 + c_1 + d_1)/4 > (b_2 + a_2 +c_2 + d_2)/4 and (a_1 + b_1)/2 > a_2 > c_2 and self.get_signal_rsi() == "SELL":
+                elif (a_1 + b_1 + c_1 + d_1)/4 > (b_2 + a_2 +c_2 + d_2)/4 and self.get_signal_rsi() == "SELL":
                     return "SELL"
                 else:
                     return None
