@@ -506,7 +506,7 @@ class IndicatorBot:
             b_2 = float(now_candle[3])
             c_2 = float(now_candle[1])
             d_2 = float(now_candle[4])
-            if float(last_candle[5]) <= float(now_candle[5]):
+            if float(last_candle[5]) <= float(now_candle[5]) and abs(c_2 - d_2) > abs(c_1 - d_1):
                 if (a_1 + b_1 + c_1 + d_1)/4 < (b_2 + a_2 +c_2 + d_2)/4 and self.get_signal_rsi() == "BUY":
                     return "BUY"
                 elif (a_1 + b_1 + c_1 + d_1)/4 > (b_2 + a_2 +c_2 + d_2)/4 and self.get_signal_rsi() == "SELL":
