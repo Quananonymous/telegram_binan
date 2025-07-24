@@ -490,14 +490,14 @@ class IndicatorBot:
     def get_last_candle_signal(self):
         try:
             
-            url = f"https://fapi.binance.com/fapi/v1/klines?symbol={self.symbol}&interval=3m&limit=2"
+            url = f"https://fapi.binance.com/fapi/v1/klines?symbol={self.symbol}&interval=3m&limit=3"
             data = binance_api_request(url)
             if not data or len(data) < 2:
                 return None
 
             # Lấy nến gần nhất đã đóng (nến trước cuối)
-            now_candle = data[-1]
-            last_candle = data[-2]
+            now_candle = data[-2]
+            last_candle = data[-3]
             a_1 = float(last_candle[2])
             b_1 = float(last_candle[3])
             c_1 = float(last_candle[1])
@@ -506,7 +506,7 @@ class IndicatorBot:
             b_2 = float(now_candle[3])
             c_2 = float(now_candle[1])
             d_2 = float(now_candle[4])
-            if float(last_candle[5]) <= float(now_candle[5]) and abs(c_2 - d_2) > abs(c_1 - d_1):
+            if float(last_candle[5]) <= float(now_candle[5]) and abs(c_2 - d_2) > abs(c_1 - d_1) and abs(a_2 - b_2) > (a_1 - b_1):
                 if (a_1 + b_1 + c_1 + d_1)/4 < (b_2 + a_2 +c_2 + d_2)/4 and self.get_signal_rsi() == "BUY":
                     return "BUY"
                 elif (a_1 + b_1 + c_1 + d_1)/4 > (b_2 + a_2 +c_2 + d_2)/4 and self.get_signal_rsi() == "SELL":
@@ -534,22 +534,26 @@ class IndicatorBot:
 
     def get_reverse_signal(self):
         try:
-            url = f"https://fapi.binance.com/fapi/v1/klines?symbol={self.symbol}&interval=1m&limit=2"
+            url = f"https://fapi.binance.com/fapi/v1/klines?symbol={self.symbol}&interval=1m&limit=3"
             data = binance_api_request(url)
             if not data or len(data) < 2:
                 return None
 
             # Lấy nến gần nhất đã đóng (nến trước cuối)
-            now_candle = data[-1]
-            last_candle = data[-2]
+            now_candle = data[-2]
+            last_candle = data[-3]
             a_1 = float(last_candle[2])
             b_1 = float(last_candle[3])
+            c_1 = float(last_candle[1])
+            d_1 = float(last_candle[4])
             a_2 = float(now_candle[2])
             b_2 = float(now_candle[3])
+            c_2 = float(now_candle[1])
+            d_2 = float(now_candle[4])
             if float(last_candle[5]) <= float(now_candle[5]):
-                if (a_1 + b_1)/2 < b_2:
+                if (c_1 + d_1)/2 < c_2:
                     return "BUY"
-                elif (a_1 + b_1)/2 > a_2:
+                elif (c_1 + d_1)/2 > c_2:
                     return "SELL"
                 else:
                     return None
@@ -596,6 +600,7 @@ class IndicatorBot:
                     roi = self.get_current_roi()
                     if ((self.side == "BUY" and reverse_signal == "SELL") or (self.side == "SELL" and reverse_signal == "BUY")) and roi > 30:
                         self.close_position(f"🔁 Nến ngược chiều ({reverse_signal})")
+                        self.log(f"🔍 Đảo chiều tại - ROI: {roi:.2f}% | Tín hiệu: {reverse_signal} | Side: {self.side}")
 
                 
             except Exception as e:
