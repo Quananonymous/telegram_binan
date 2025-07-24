@@ -543,6 +543,10 @@ class IndicatorBot:
                 
             roi = (profit / invested) * 100
             return roi
+        except Exception as e:
+        if time.time() - self.last_error_log_time > 10:
+            self.log(f"Lỗi kiểm tra TP/SL: {str(e)}")
+            self.last_error_log_time = time.time()
     def get_reverse_signal(self):
         try:
             url = f"https://fapi.binance.com/fapi/v1/klines?symbol={self.symbol}&interval=1m&limit=3"
