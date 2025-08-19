@@ -535,7 +535,7 @@ class IndicatorBot:
                                 invested = self.entry * abs(self.qty) / self.lev
                                 roi = (profit / invested) * 100 if invested != 0 else 0
                     
-                                if roi >= 30:
+                                if roi >= 20:
                                     self.close_position(f"🔄 ROI {roi:.2f}% vượt ngưỡng, đảo chiều sang {signal}")
 
                     if signal and current_time - self.last_trade_time > 60:
@@ -669,7 +669,7 @@ class IndicatorBot:
 
     def open_position(self, side):
         # Kiểm tra lại trạng thái trước khi vào lệnh
-        #self.check_position_status()    
+        self.check_position_status()    
         try:
             # Hủy lệnh tồn đọng
             cancel_all_orders(self.symbol)
@@ -1210,6 +1210,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
