@@ -571,12 +571,13 @@ class IndicatorBot:
             positions = get_positions(self.symbol)
             
             if not positions or len(positions) == 0:
-                self.position_open = False
+                '''self.position_open = False
                 self.status = "waiting"
                 self.side = ""
                 self.qty = 0
-                self.entry = 0
+                self.entry = 0'''
                 return
+                
             
             for pos in positions:
                 if pos['symbol'] == self.symbol:
@@ -1210,6 +1211,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
