@@ -1,4 +1,3 @@
-import random
 import json
 import hmac
 import hashlib
@@ -345,26 +344,9 @@ def calc_ema(prices, period):
     weights = np.exp(np.linspace(-1., 0., period))
     weights /= weights.sum()
     ema = np.convolve(prices, weights, mode='valid')
-    return ema
+    return float(ema[-1])  # lấy giá trị EMA cuối cùng dạng float
 
-def get_ema_crossover_signal(prices, fast_period=9, slow_period=21):
-    if len(prices) < slow_period + 2:
-        return None
 
-    fast_ema = calc_ema(prices, fast_period)
-    slow_ema = calc_ema(prices, slow_period)
-
-    if fast_ema is None or slow_ema is None:
-        return None
-
-    f1, f2 = fast_ema[-2], fast_ema[-1]
-    s1, s2 = slow_ema[-2], slow_ema[-1]
-
-    if f1 < s1 and f2 > s2:
-        return "BUY"
-    elif f1 > s1 and f2 < s2:
-        return "SELL"
-    return None
 
 
 # ========== QUẢN LÝ WEBSOCKET HIỆU QUẢ VỚI KIỂM SOÁT LỖI ==========
@@ -446,6 +428,89 @@ class WebSocketManager:
         self._stop_event.set()
         for symbol in list(self.connections.keys()):
             self.remove_symbol(symbol)
+            
+class Candle:
+    def __init__(self, timestamp, open_price, high_price, low_price, close_price, volume):
+        self.timestamp = int(timestamp)
+        self.open = float(open_price)
+        self.high = float(high_price)
+        self.low = float(low_price)
+        self.close = float(close_price)
+        self.volume = float(volume)
+
+    @classmethod
+    def from_binance(cls, kline):
+        """
+        Tạo Candle từ 1 cây nến của Binance (list 12 phần tử).
+        Cấu trúc chuẩn của Binance:
+        [
+            1499040000000,      # 0: Open time
+            "0.01634790",       # 1: Open
+            "0.80000000",       # 2: High
+            "0.01575800",       # 3: Low
+            "0.01577100",       # 4: Close
+            "148976.11427815",  # 5: Volume
+            1499644799999,      # 6: Close time
+            "2434.19055334",    # 7: Quote asset volume
+            308,                # 8: Number of trades
+            "1756.87402397",    # 9: Taker buy base asset volume
+            "28.46694368",      # 10: Taker buy quote asset volume
+            "17928899.62484339" # 11: Ignore
+        ]
+        """
+        if not isinstance(kline, list) or len(kline) < 6:
+            raise ValueError(f"❌ Dữ liệu nến không hợp lệ: {kline}")
+
+        try:
+            return cls(
+                timestamp=kline[0],  # Open time
+                open_price=kline[1],
+                high_price=kline[2],
+                low_price=kline[3],
+                close_price=kline[4],
+                volume=kline[5]
+            )
+        except (TypeError, ValueError, IndexError) as e:
+            raise ValueError(f"❌ Lỗi khi tạo Candle từ dữ liệu: {kline} → {str(e)}")
+
+    def body_size(self):
+        return abs(self.close - self.open)
+
+    def candle_range(self):
+        return self.high - self.low
+
+    def direction(self):
+        if self.close > self.open:
+            return "BUY"
+        elif self.close < self.open:
+            return "SELL"
+        return "DOJI"
+
+    def average_price(self):
+        return (self.open + self.close) / 2
+    
+    def upper_wick(self):
+        return self.high - max(self.open, self.close)
+
+    def lower_wick(self):
+        return min(self.open, self.close) - self.low
+    
+    def wick_direction(self):
+        """Xác định hướng chân nến: 'UP', 'DOWN', 'BALANCED'"""
+        upper = self.upper_wick()
+        lower = self.lower_wick()
+        body =  self.body_size()
+
+        if upper > lower and upper >= body:
+            return "UP"
+        if lower > upper and lower >= body:
+            return "DOWN"
+        else:
+            return "BALANCED"
+    
+    def __str__(self):
+        return f"[{self.timestamp}] O:{self.open} H:{self.high} L:{self.low} C:{self.close} V:{self.volume}"
+
 
 # ========== BOT CHÍNH VỚI ĐÓNG LỆNH CHÍNH XÁC ==========
 class IndicatorBot:
@@ -473,7 +538,7 @@ class IndicatorBot:
         self.last_position_check = 0
         self.last_error_log_time = 0
         self.last_close_time = 0
-        self.cooldown_period = 60  # Thời gian chờ sau khi đóng lệnh
+        self.cooldown_period = 9000  # Thời gian chờ sau khi đóng lệnh
         self.max_position_attempts = 3  # Số lần thử tối đa
         self.position_attempt_count = 0
         
@@ -505,6 +570,205 @@ class IndicatorBot:
                 self.rsi_history = self.rsi_history[-15:]
 
 
+        # ====== THÊM MỚI: tiện ích lấy klines nhanh ======
+    def _fetch_klines(self, interval="5m", limit=50):
+        url = f"https://fapi.binance.com/fapi/v1/klines?symbol={self.symbol}&interval={interval}&limit={limit}"
+        data = binance_api_request(url)
+        if not data or len(data) < 20:
+            return None
+        return data  # danh sách klines gốc của Binance
+
+    def _calc_rsi_series(self, closes, period=14):
+        if len(closes) < period + 1:
+            return [None] * len(closes)
+
+        deltas = np.diff(closes)
+        seed = deltas[:period]
+        up = seed[seed >= 0].sum() / period
+        down = -seed[seed < 0].sum() / period
+        rs = up / down if down != 0 else 0
+        rsi = np.zeros_like(closes, dtype=float)
+        rsi[:period] = 100. - 100. / (1. + rs)
+
+        upval, downval = up, down
+        for i in range(period, len(closes)):
+            delta = deltas[i - 1]
+            upval = (upval * (period - 1) + (delta if delta > 0 else 0)) / period
+            downval = (downval * (period - 1) + (-delta if delta < 0 else 0)) / period
+            rs = upval / downval if downval != 0 else 0
+            rsi[i] = 100. - 100. / (1. + rs)
+
+        return rsi
+
+
+    # ====== THÊM MỚI: EMA cuối cùng (nhanh & gọn) ======
+    def _ema_last(self, values, period):
+        if len(values) < period:
+            return None
+        k = 2 / (period + 1)
+        ema_val = float(values[0])
+        for x in values[1:]:
+            ema_val = float(x) * k + ema_val * (1 - k)
+        return ema_val
+
+    # ====== THÊM MỚI: ATR (dùng True Range) ======
+    def _atr(self, highs, lows, closes, period=14):
+        if len(closes) < period + 1:
+            return None
+        trs = []
+        for i in range(1, len(closes)):
+            h = float(highs[i]); l = float(lows[i]); pc = float(closes[i-1])
+            tr = max(h - l, abs(h - pc), abs(l - pc))
+            trs.append(tr)
+        if len(trs) < period:
+            return None
+        return sum(trs[-period:]) / period  # SMA ATR
+
+    # ====== PHÂN LOẠI NẾN: chỉ còn TĂNG / GIẢM / MẠNH / YẾU / QUÁ ======
+    def _candle_full(self, o, h, l, c, rsi, atr, ema_fast, ema_slow):
+        body = abs(c - o)
+        candle_range = h - l
+        signal = "NEUTRAL"
+
+        # Xác định nến xanh / đỏ
+        if c > o:  # Nến tăng
+            if rsi > 85:
+                signal = "UP_OVERBOUGHT"
+            elif rsi > 65:
+                signal = "UP_STRONG"
+            else:
+                signal = "UP_WEAK"
+        elif c < o:  # Nến giảm
+            if rsi < 15:
+                signal = "DOWN_OVERSOLD"
+            elif rsi < 35:
+                signal = "DOWN_STRONG"
+            else:
+                signal = "DOWN_WEAK"
+
+        # Điều chỉnh mạnh/yếu bằng ATR + thân nến
+        if atr:
+            if candle_range >= 1.4 * atr and "WEAK" in signal:
+                signal = signal.replace("WEAK", "STRONG")
+            if body >= 0.6 * atr and "WEAK" in signal:
+                signal = signal.replace("WEAK", "STRONG")
+
+        # Lọc EMA trend: chỉ giữ tín hiệu thuận xu hướng
+        if ema_fast and ema_slow:
+            if "UP" in signal and ema_fast < ema_slow:
+                signal = "NEUTRAL"  # bỏ BUY khi trend đang DOWN
+            if "DOWN" in signal and ema_fast > ema_slow:
+                signal = "NEUTRAL"  # bỏ SELL khi trend đang UP
+
+        return signal
+
+    # ====== LOGIC ĐỆ QUY (gọn) ======
+    def _recursive_logic(self, states, idx=2):
+        if idx >= len(states):
+            return None
+
+        prev2, prev1, curr = states[idx-2], states[idx-1], states[idx]
+        decision = None
+
+        # BUY rules
+        if prev2 == "UP_STRONG" and prev1 == "UP_STRONG" and curr.startswith("UP"):
+            decision = "BUY"
+        elif prev1 == "DOWN_OVERSOLD" or curr == "DOWN_OVERSOLD":
+            decision = "BUY"
+        elif prev1.startswith("DOWN") and curr == "UP_STRONG":
+            decision = "BUY"
+
+        # SELL rules
+        elif prev2 == "DOWN_STRONG" and prev1 == "DOWN_STRONG" and curr.startswith("DOWN"):
+            decision = "SELL"
+        elif prev1 == "UP_OVERBOUGHT" or curr == "UP_OVERBOUGHT":
+            decision = "SELL"
+        elif prev1.startswith("UP") and curr == "DOWN_STRONG":
+            decision = "SELL"
+
+        # SIDEWAY
+        elif prev1 == "NEUTRAL" and curr == "NEUTRAL":
+            decision = None
+
+        # Đệ quy tiếp
+        next_decision = self._recursive_logic(states, idx + 1)
+        return next_decision if next_decision else decision
+
+    # ====== GET SIGNAL ======
+        def get_signal(self, body_ratio=2.0):
+            """
+            Kết hợp RSI (1m) với thân nến (30m)
+            - Nếu nến 30m -1 không phải doji
+            - Thân nến -1 >= body_ratio * thân nến -2
+            => Đảo chiều, nhưng có điều kiện RSI xác nhận
+            """
+            try:
+                # === Lấy dữ liệu RSI (1m) ===
+                data_1m = self._fetch_klines(interval="1m", limit=21)
+                if not data_1m or len(data_1m) < 20:
+                    return None
+
+                closes_1m = [float(k[4]) for k in data_1m]
+                rsi_values = self._calc_rsi_series(closes_1m, period=14)
+                rsi_last = rsi_values[-1] if rsi_values[-1] is not None else 50.0
+
+                # === Lấy dữ liệu Candle (30m) ===
+                data_30m = self._fetch_klines(interval="30m", limit=4)
+                if not data_30m or len(data_30m) < 3:
+                    return None
+
+                candle_prev = Candle.from_binance(data_30m[-2])  # nến -2
+                candle_last = Candle.from_binance(data_30m[-1])  # nến -1
+
+                body_prev = candle_prev.body_size()
+                body_last = candle_last.body_size()
+
+                decision = None
+                if candle_last.direction() != "DOJI" and body_prev > 0:
+                    if body_last >= body_ratio * body_prev:
+                        # Nếu nến 30m -1 tăng => đảo chiều SELL, cần RSI cao
+                        if candle_last.direction() == "BUY" and rsi_last > 60:
+                            decision = "SELL"
+                        # Nếu nến 30m -1 giảm => đảo chiều BUY, cần RSI thấp
+                        elif candle_last.direction() == "SELL" and rsi_last < 40:
+                            decision = "BUY"
+
+                # === Log kết quả ===
+                if decision:
+                    self.log(
+                        f"RSI(1m)={rsi_last:.2f} | "
+                        f"Candle30m-1 body={body_last:.5f}, dir={candle_last.direction()} | "
+                        f"Candle30m-2 body={body_prev:.5f} | "
+                        f"Tín hiệu={decision}"
+                    )
+
+                return decision
+
+            except Exception as e:
+                self.log(f"Lỗi get_signal (RSI1m + Candle30m): {str(e)}")
+                return None
+
+    def get_ema_crossover_signal(self, prices, short_period=9, long_period=21):
+        if len(prices) < long_period:
+            return None
+    
+        def ema(values, period):
+            k = 2 / (period + 1)
+            ema_val = float(values[0])
+            for price in values[1:]:
+                ema_val = float(price) * k + ema_val * (1 - k)
+            return float(ema_val)
+    
+        short_ema = ema(prices[-long_period:], short_period)
+        long_ema = ema(prices[-long_period:], long_period)
+    
+        if short_ema > long_ema:
+            return "BUY"
+        elif short_ema < long_ema:
+            return "SELL"
+        else:
+            return None
+
     def _run(self):
         """Luồng chính quản lý bot với kiểm soát lỗi chặt chẽ"""
         while not self._stop:
@@ -524,10 +788,10 @@ class IndicatorBot:
                         continue
                     
                     signal = self.get_signal()
-                    signal_reverse = self.get_signal_reverse()
+                    
             
-                    if signal_reverse:
-                        if (self.side == "BUY" and signal_reverse == "SELL") or (self.side == "SELL" and signal_reverse == "BUY"):
+                    if signal:
+                        if (self.side == "BUY" and signal == "SELL") or (self.side == "SELL" and signal == "BUY"):
                             # Tính ROI hiện tại
                             current_price = self.prices[-1] if self.prices else get_current_price(self.symbol)
                             if self.entry > 0 and current_price > 0:
@@ -577,7 +841,6 @@ class IndicatorBot:
                 self.qty = 0
                 self.entry = 0'''
                 return
-                
             
             for pos in positions:
                 if pos['symbol'] == self.symbol:
@@ -639,34 +902,6 @@ class IndicatorBot:
             if time.time() - self.last_error_log_time > 10:
                 self.log(f"Lỗi kiểm tra TP/SL: {str(e)}")
                 self.last_error_log_time = time.time()
-
-    def get_signal(self):
-        a = random.randint(0, 1)
-        if a == 1:
-            return "BUY"
-        if a == 0:
-            return "SELL"
-    def get_signal_reverse(self):
-        if len(self.rsi_history) < 5 or len(self.prices) < 30:
-            return None
-    
-        # --- RSI tín hiệu ---
-        r1, r2, r3, r4, r5 = self.rsi_history[-5:]
-        rsi_signal = None
-        if r1 < r2 < r3 and r4 < r3 and r3 > 85 and (r3 - r4) > 5:
-            rsi_signal = "SELL"
-        if r1 > r2 > r3 and r4 > r3 and r3 < 15 and (r4 - r3) > 5:
-            rsi_signal = "BUY"
-    
-        # --- EMA crossover tín hiệu ---
-        ema_signal = get_ema_crossover_signal(self.prices)
-    
-        # --- Kết hợp 2 tín hiệu ---
-        if rsi_signal == ema_signal:
-            return rsi_signal
-    
-        return None
-
 
     def open_position(self, side):
         # Kiểm tra lại trạng thái trước khi vào lệnh
@@ -1211,11 +1446,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
