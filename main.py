@@ -695,7 +695,7 @@ class IndicatorBot:
         return next_decision if next_decision else decision
 
     # ====== GET SIGNAL ======
-        def get_signal(self, body_ratio=2.0):
+        def get_signal(self, body_ratio=3.0):
             """
             Kết hợp RSI (1m) với thân nến (30m)
             - Nếu nến 30m -1 không phải doji
@@ -727,10 +727,10 @@ class IndicatorBot:
                 if candle_last.direction() != "DOJI" and body_prev > 0:
                     if body_last >= body_ratio * body_prev:
                         # Nếu nến 30m -1 tăng => đảo chiều SELL, cần RSI cao
-                        if candle_last.direction() == "BUY" and rsi_last > 60:
+                        if candle_last.direction() == "BUY" and rsi_last > 80:
                             decision = "SELL"
                         # Nếu nến 30m -1 giảm => đảo chiều BUY, cần RSI thấp
-                        elif candle_last.direction() == "SELL" and rsi_last < 40:
+                        elif candle_last.direction() == "SELL" and rsi_last < 20:
                             decision = "BUY"
 
                 # === Log kết quả ===
@@ -1446,3 +1446,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
