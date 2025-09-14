@@ -695,58 +695,58 @@ class IndicatorBot:
         return next_decision if next_decision else decision
 
     # ====== GET SIGNAL ======
-        def get_signal(self, body_ratio=3.0):
-            """
-            Kết hợp RSI (1m) với thân nến (30m)
-            - Nếu nến 30m -1 không phải doji
-            - Thân nến -1 >= body_ratio * thân nến -2
-            => Đảo chiều, nhưng có điều kiện RSI xác nhận
-            """
-            try:
-                # === Lấy dữ liệu RSI (1m) ===
-                data_1m = self._fetch_klines(interval="1m", limit=21)
-                if not data_1m or len(data_1m) < 20:
-                    return None
-
-                closes_1m = [float(k[4]) for k in data_1m]
-                rsi_values = self._calc_rsi_series(closes_1m, period=14)
-                rsi_last = rsi_values[-1] if rsi_values[-1] is not None else 50.0
-
-                # === Lấy dữ liệu Candle (30m) ===
-                data_30m = self._fetch_klines(interval="30m", limit=4)
-                if not data_30m or len(data_30m) < 3:
-                    return None
-
-                candle_prev = Candle.from_binance(data_30m[-2])  # nến -2
-                candle_last = Candle.from_binance(data_30m[-1])  # nến -1
-
-                body_prev = candle_prev.body_size()
-                body_last = candle_last.body_size()
-
-                decision = None
-                if candle_last.direction() != "DOJI" and body_prev > 0:
-                    if body_last >= body_ratio * body_prev:
-                        # Nếu nến 30m -1 tăng => đảo chiều SELL, cần RSI cao
-                        if candle_last.direction() == "BUY" and rsi_last > 80:
-                            decision = "SELL"
-                        # Nếu nến 30m -1 giảm => đảo chiều BUY, cần RSI thấp
-                        elif candle_last.direction() == "SELL" and rsi_last < 20:
-                            decision = "BUY"
-
-                # === Log kết quả ===
-                if decision:
-                    self.log(
-                        f"RSI(1m)={rsi_last:.2f} | "
-                        f"Candle30m-1 body={body_last:.5f}, dir={candle_last.direction()} | "
-                        f"Candle30m-2 body={body_prev:.5f} | "
-                        f"Tín hiệu={decision}"
-                    )
-
-                return decision
-
-            except Exception as e:
-                self.log(f"Lỗi get_signal (RSI1m + Candle30m): {str(e)}")
+    def get_signal(self, body_ratio=3.0):
+        """
+        Kết hợp RSI (1m) với thân nến (30m)
+        - Nếu nến 30m -1 không phải doji
+        - Thân nến -1 >= body_ratio * thân nến -2
+        => Đảo chiều, nhưng có điều kiện RSI xác nhận
+        """
+        try:
+            # === Lấy dữ liệu RSI (1m) ===
+            data_1m = self._fetch_klines(interval="1m", limit=21)
+            if not data_1m or len(data_1m) < 20:
                 return None
+
+            closes_1m = [float(k[4]) for k in data_1m]
+            rsi_values = self._calc_rsi_series(closes_1m, period=14)
+            rsi_last = rsi_values[-1] if rsi_values[-1] is not None else 50.0
+
+            # === Lấy dữ liệu Candle (30m) ===
+            data_30m = self._fetch_klines(interval="30m", limit=4)
+            if not data_30m or len(data_30m) < 3:
+                return None
+
+            candle_prev = Candle.from_binance(data_30m[-2])  # nến -2
+            candle_last = Candle.from_binance(data_30m[-1])  # nến -1
+
+            body_prev = candle_prev.body_size()
+            body_last = candle_last.body_size()
+
+            decision = None
+            if candle_last.direction() != "DOJI" and body_prev > 0:
+                if body_last >= body_ratio * body_prev:
+                    # Nếu nến 30m -1 tăng => đảo chiều SELL, cần RSI cao
+                    if candle_last.direction() == "BUY" and rsi_last > 80:
+                        decision = "SELL"
+                    # Nếu nến 30m -1 giảm => đảo chiều BUY, cần RSI thấp
+                    elif candle_last.direction() == "SELL" and rsi_last < 20:
+                        decision = "BUY"
+
+            # === Log kết quả ===
+            if decision:
+                self.log(
+                    f"RSI(1m)={rsi_last:.2f} | "
+                    f"Candle30m-1 body={body_last:.5f}, dir={candle_last.direction()} | "
+                    f"Candle30m-2 body={body_prev:.5f} | "
+                    f"Tín hiệu={decision}"
+                )
+
+            return decision
+
+        except Exception as e:
+            self.log(f"Lỗi get_signal (RSI1m + Candle30m): {str(e)}")
+            return None
 
     def get_ema_crossover_signal(self, prices, short_period=9, long_period=21):
         if len(prices) < long_period:
@@ -1446,4 +1446,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
