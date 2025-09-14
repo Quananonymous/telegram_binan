@@ -695,7 +695,7 @@ class IndicatorBot:
         return next_decision if next_decision else decision
 
     # ====== GET SIGNAL ======
-    def get_signal(self, body_ratio=3.0):
+    def get_signal(self, body_ratio=2.0):
         """
         Kết hợp RSI (1m) với thân nến (30m)
         - Nếu nến 30m -1 không phải doji
@@ -1446,5 +1446,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
